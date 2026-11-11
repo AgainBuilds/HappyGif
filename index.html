@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="referrer" content="no-referrer">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Extract and download animations from supported social-media links.">
+  <title>GIFReaper — Save what moves</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="page">
+    <nav class="nav">
+      <a class="brand" href="/" aria-label="GIFReaper home">
+        <span class="brand-mark">G</span><span>GIFREAPER</span>
+      </a>
+      <span class="nav-note">ANIMATION DOWNLOADER</span>
+    </nav>
+
+    <section class="hero">
+      <div class="eyebrow"><span class="pulse"></span> SIMPLE. FAST. NO ACCOUNT.</div>
+      <h1>Save what<br><span>moves.</span></h1>
+      <p class="intro">Paste a link to an animation from a supported platform. Preview it, then save it to your device.</p>
+
+      <form id="extract-form" class="extract-card">
+        <label for="media-url">PASTE ANIMATION LINK</label>
+        <div class="input-row">
+          <input id="media-url" name="url" type="url"
+                 placeholder="https://..." autocomplete="url" required>
+          <button id="extract-button" type="submit">Extract <span aria-hidden="true">↗</span></button>
+        </div>
+        <p id="message" class="message" role="status" aria-live="polite">
+          Paste a public link from a supported platform.
+        </p>
+      </form>
+
+      <div id="result"></div>
+
+      <div class="supported">
+        <span>PLATFORMS</span>
+        <div class="platforms">
+          <span class="live">Giphy</span><span class="live">Reddit</span><span class="live">Tenor</span><span>X</span>
+          <span>Pinterest</span><span>Instagram</span><span>TikTok</span>
+        </div>
+        <small>Giphy, Reddit, and Tenor downloads work now. The others are recognized but not downloadable yet.</small>
+      </div>
+    </section>
+
+    <footer>
+      <span>GIFREAPER</span>
+      <span>Only download content you have permission to save.</span>
+    </footer>
+  </main>
+  <script src="/app.js"></script>
+</body>
+</html>
