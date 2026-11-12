@@ -1,20 +1,10 @@
+"""HappyGif public-link media extraction.
 
-"""HappyGif platform extractors.
-
-Each extractor takes a URL and an httpx.Client and returns:
-    {
-        "supported": True,
-        "platform": "...",
-        "title": "...",
-        "name": "...",
-        "formats": [
-            {"format": "gif", "url": "...", "size": 12345}
-        ]
-    }
-
-Errors are raised as ExtractionError with a status code
-and a message safe to show to the user.
+Uses yt-dlp's maintained platform extractors for public posts. It does not
+use account cookies, bypass private-post restrictions, or download playlists.
 """
+
+from __future__ import annotations
 
 import ipaddress
 import re
@@ -22,48 +12,43 @@ import socket
 from urllib.parse import urlparse
 
 import httpx
+import yt_dlp
+from yt_dlp.utils import DownloadError
 
 
+PLATFORM_DOMAINS = {
+    "Giphy": ("giphy.com",),
+    "Reddit": ("reddit.com", "redd.it"),
+    "Tenor": ("tenor.com",),
+    "X": ("x.com", "twitter.com"),
+    "Instagram": ("instagram.com",),
+    "TikTok": ("tiktok.com",),
+    "Pinterest": ("pinterest.com", "pin.it"),
+}
+
+# Media is proxied through /api/file. Keep this list narrow: never proxy an
+# arbitrary URL supplied by a browser client.
 MEDIA_DOMAINS = (
-    "giphy.com",
-    "i.redd.it",
-    "v.redd.it",
-    "preview.redd.it",
-    "tenor.com",
-    "c.tenor.com",
-    "video.twimg.com",
-    "pbs.twimg.com",
+    "media.giphy.com", "giphy.com",
+    "i.redd.it", "v.redd.it", "preview.redd.it",
+    "external-preview.redd.it", "redditmedia.com",
+    "tenor.com", "c.tenor.com", "tenor.co",
+    "video.twimg.com", "pbs.twimg.com", "twimg.com",
+    "cdninstagram.com", "fbcdn.net",
+    "tiktokcdn.com", "tiktokcdn-us.com", "tiktokcdn-eu.com",
+    "byteoversea.com", "ibytedtos.com", "muscdn.com",
+    "tiktokv.com", "webapp.tiktok.com",
+    "v16-webapp.tiktok.com", "v19-webapp.tiktok.com",
+    "pinimg.com",
 )
-
-
-APPROVED_REDIRECT_DOMAINS = (
-    "giphy.com",
-    "reddit.com",
-    "redd.it",
-    "i.redd.it",
-    "v.redd.it",
-    "preview.redd.it",
-    "tenor.com",
-    "c.tenor.com",
-    "x.com",
-    "twitter.com",
-    "fxtwitter.com",
-    "api.fxtwitter.com",
-    "twimg.com",
-)
-
 
 HEADERS = {
-    "User-Agent": "Mozilla/5.0 (compatible; HappyGif/1.0)",
+    "User-Agent": (
+        "Mozilla/5.0 (compatible; HappyGif/2.0; "
+        "+https://happygif.onrender.com)"
+    ),
     "Accept": "*/*",
 }
-
-REDDIT_HEADERS = {
-    "User-Agent": "web:happygif:1.0 (animation downloader)",
-    "Accept": "application/json",
-}
-
-MAX_REDIRECTS = 5
 
 
 class ExtractionError(Exception):
@@ -74,9 +59,8 @@ class ExtractionError(Exception):
 
 
 def make_client() -> httpx.Client:
-    # Redirects are handled manually by resolve_redirects.
     return httpx.Client(
-        timeout=15,
+        timeout=20,
         follow_redirects=False,
         headers=HEADERS
     )
@@ -88,191 +72,316 @@ def hostname(url: str) -> str:
     ).lower().rstrip(".")
 
 
-def _host_matches(host: str, domains: tuple) -> bool:
+def _host_matches(host: str, domains: tuple[str, ...]) -> bool:
     return any(
         host == domain or host.endswith("." + domain)
         for domain in domains
     )
 
 
-def is_media_host(url: str) -> bool:
-    """Only allow HTTPS URLs on explicitly approved media hosts."""
+def platform_for_url(url: str) -> str | None:
     parsed = urlparse(url)
-    host = (parsed.hostname or "").lower().rstrip(".")
 
-    return (
-        parsed.scheme == "https"
-        and bool(host)
-        and _host_matches(host, MEDIA_DOMAINS)
-    )
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        return None
 
+    host = parsed.hostname.lower().rstrip(".")
 
-def is_approved_redirect_host(url: str) -> bool:
-    parsed = urlparse(url)
-    host = (parsed.hostname or "").lower().rstrip(".")
+    for platform, domains in PLATFORM_DOMAINS.items():
+        if _host_matches(host, domains):
+            return platform
 
-    return (
-        parsed.scheme in ("http", "https")
-        and bool(host)
-        and _host_matches(host, APPROVED_REDIRECT_DOMAINS)
-    )
+    return None
 
 
 def is_public_hostname(host: str) -> bool:
-    """Reject private, loopback, link-local and reserved IP addresses."""
+    """Reject private, loopback, link-local and reserved destinations."""
 
     if not host or host == "localhost":
         return False
 
     try:
-        ip = ipaddress.ip_address(host)
-
-        return not (
-            ip.is_private
-            or ip.is_loopback
-            or ip.is_link_local
-            or ip.is_reserved
-            or ip.is_multicast
-            or ip.is_unspecified
-        )
-
+        addresses = [ipaddress.ip_address(host)]
     except ValueError:
-        pass
-
-    try:
-        infos = socket.getaddrinfo(host, None)
-    except socket.gaierror:
-        return False
-
-    if not infos:
-        return False
-
-    for info in infos:
         try:
-            ip = ipaddress.ip_address(info[4][0])
-        except (ValueError, IndexError):
+            addresses = [
+                ipaddress.ip_address(item[4][0])
+                for item in socket.getaddrinfo(host, None)
+            ]
+        except (socket.gaierror, ValueError, IndexError):
             return False
 
-        if (
+    return bool(addresses) and all(
+        not (
             ip.is_private
             or ip.is_loopback
             or ip.is_link_local
             or ip.is_reserved
             or ip.is_multicast
             or ip.is_unspecified
-        ):
-            return False
-
-    return True
-
-
-def resolve_redirects(
-    client: httpx.Client,
-    url: str,
-    headers: dict | None = None
-) -> str:
-    """Follow approved platform redirects only."""
-
-    current = url
-
-    for _ in range(MAX_REDIRECTS):
-        if not is_approved_redirect_host(current):
-            raise ExtractionError(
-                400,
-                "Redirect landed on a host that is not allowed."
-            )
-
-        host = hostname(current)
-
-        if not is_public_hostname(host):
-            raise ExtractionError(
-                400,
-                "Redirect target is not a public address."
-            )
-
-        try:
-            response = client.get(
-                current,
-                headers=headers or HEADERS
-            )
-        except httpx.HTTPError:
-            raise ExtractionError(
-                502,
-                "Couldn't follow this link. Try the full post URL."
-            )
-
-        if response.status_code not in (
-            301, 302, 303, 307, 308
-        ):
-            return str(response.url) if response.url else current
-
-        location = response.headers.get("location")
-
-        if not location:
-            return current
-
-        next_url = str(
-            httpx.URL(current).join(location)
         )
-
-        if not is_approved_redirect_host(next_url):
-            raise ExtractionError(
-                400,
-                "Redirect landed on a host that is not allowed."
-            )
-
-        current = next_url
-
-    raise ExtractionError(
-        400,
-        "Too many redirects while resolving this link."
+        for ip in addresses
     )
 
 
-def probe(client: httpx.Client, url: str):
-    """Check a media file and return its status and size."""
+def is_media_host(url: str) -> bool:
+    parsed = urlparse(url)
+    host = (parsed.hostname or "").lower().rstrip(".")
 
-    if not is_media_host(url):
+    return (
+        parsed.scheme == "https"
+        and not parsed.username
+        and not parsed.password
+        and parsed.port in (None, 443)
+        and bool(host)
+        and _host_matches(host, MEDIA_DOMAINS)
+    )
+
+
+class _QuietLogger:
+    def debug(self, _message):
+        pass
+
+    def warning(self, _message):
+        pass
+
+    def error(self, _message):
+        pass
+
+
+def _clean_name(value: str) -> str:
+    value = re.sub(
+        r"[^A-Za-z0-9._-]+",
+        "-",
+        value or "animation"
+    )
+
+    return value.strip("-._")[:70] or "animation"
+
+
+def _candidate_formats(info: dict) -> list[dict]:
+    candidates: dict[str, dict] = {}
+    raw_formats = info.get("formats") or []
+
+    # Some extractors expose only the selected format at the top level.
+    if info.get("url"):
+        raw_formats = list(raw_formats) + [{
+            "url": info.get("url"),
+            "ext": info.get("ext"),
+            "format_id": info.get("format_id"),
+            "height": info.get("height") or 0,
+            "filesize": (
+                info.get("filesize")
+                or info.get("filesize_approx")
+            ),
+            "vcodec": info.get("vcodec"),
+        }]
+
+    for item in raw_formats:
+        if not isinstance(item, dict):
+            continue
+
+        ext = (item.get("ext") or "").lower()
+
+        if ext not in ("gif", "mp4"):
+            continue
+
+        if ext == "mp4" and item.get("vcodec") == "none":
+            continue
+
+        media_url = item.get("url") or ""
+
+        if not is_media_host(media_url):
+            continue
+
+        current = candidates.get(ext)
+
+        score = (
+            int(item.get("height") or 0),
+            float(item.get("tbr") or 0)
+        )
+
+        old_score = (
+            current.get("_score", (-1, -1))
+            if current
+            else (-1, -1)
+        )
+
+        if current is None or score >= old_score:
+            candidates[ext] = {
+                "format": ext,
+                "url": media_url,
+                "size": (
+                    item.get("filesize")
+                    or item.get("filesize_approx")
+                ),
+                "_score": score,
+            }
+
+    # GIF and MP4 are the only formats the current frontend handles.
+    result = []
+
+    for ext in ("gif", "mp4"):
+        item = candidates.get(ext)
+
+        if item:
+            item.pop("_score", None)
+            result.append(item)
+
+    return result
+
+
+def _extract_with_ytdlp(
+    url: str,
+    platform: str,
+    client: httpx.Client | None = None
+) -> dict:
+    """Resolve one public post into downloadable GIF/MP4 formats."""
+
+    actual_platform = platform_for_url(url)
+
+    if not actual_platform or actual_platform != platform:
+        raise ExtractionError(
+            400,
+            "Paste a valid public link from a supported platform."
+        )
+
+    parsed = urlparse(url)
+
+    if (
+        parsed.username
+        or parsed.password
+        or parsed.port not in (None, 80, 443)
+    ):
+        raise ExtractionError(400, "That link is not valid.")
+
+    if not is_public_hostname(parsed.hostname or ""):
+        raise ExtractionError(
+            400,
+            "That link does not point to a public website."
+        )
+
+    options = {
+        "quiet": True,
+        "no_warnings": True,
+        "logger": _QuietLogger(),
+        "noplaylist": True,
+        "skip_download": True,
+        "extract_flat": False,
+        "socket_timeout": 20,
+        "retries": 1,
+        "fragment_retries": 1,
+        "ignoreerrors": False,
+        "nocheckcertificate": False,
+        "cachedir": False,
+        "http_headers": HEADERS,
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(options) as ydl:
+            info = ydl.extract_info(url, download=False)
+
+    except DownloadError as exc:
+        detail = str(exc).lower()
+
+        if any(
+            word in detail
+            for word in (
+                "private",
+                "login",
+                "sign in",
+                "authentication"
+            )
+        ):
+            raise ExtractionError(
+                403,
+                "This post is private or requires a login. "
+                "HappyGif only extracts publicly accessible posts."
+            )
+
+        if (
+            "unsupported url" in detail
+            or "not a valid url" in detail
+        ):
+            raise ExtractionError(
+                422,
+                f"{platform} could not resolve this link. "
+                "Check that it points to a specific public post."
+            )
+
+        raise ExtractionError(
+            422,
+            f"{platform} could not provide downloadable media "
+            "for this post. It may be unavailable or access "
+            "may be restricted."
+        )
+
+    except Exception:
+        raise ExtractionError(
+            502,
+            f"HappyGif couldn't process this {platform} link "
+            "right now. Please try again later."
+        )
+
+    if (
+        not isinstance(info, dict)
+        or info.get("_type") in ("playlist", "multi_video")
+    ):
+        raise ExtractionError(
+            422,
+            "Paste a link to one post or animation, not a collection."
+        )
+
+    formats = _candidate_formats(info)
+
+    if not formats:
+        raise ExtractionError(
+            422,
+            f"No downloadable GIF or MP4 was exposed by this "
+            f"{platform} post. It may contain only still images, "
+            "or the platform may restrict access."
+        )
+
+    title = (
+        info.get("title")
+        or info.get("description")
+        or ""
+    ).strip()
+
+    if len(title) > 160:
+        title = title[:157] + "..."
+
+    identifier = _clean_name(
+        str(
+            info.get("id")
+            or info.get("display_id")
+            or "animation"
+        )
+    )
+
+    return {
+        "supported": True,
+        "platform": platform,
+        "title": title or None,
+        "name": _clean_name(
+            f"{platform.lower()}-{identifier}"
+        ),
+        "formats": formats,
+    }
+
+
+# Keep the original HappyGif-specific Giphy and Tenor resolvers.
+# These two services are not consistently covered by yt-dlp's
+# dedicated extractors.
+
+
+def _probe(client: httpx.Client, media_url: str):
+    if not is_media_host(media_url):
         return None, None
 
     try:
-        with client.stream("GET", url) as response:
-
-            if response.status_code in (
-                301, 302, 303, 307, 308
-            ):
-                location = response.headers.get("location")
-
-                if location:
-                    next_url = str(
-                        httpx.URL(url).join(location)
-                    )
-
-                    if (
-                        is_media_host(next_url)
-                        and is_public_hostname(hostname(next_url))
-                    ):
-                        with client.stream(
-                            "GET",
-                            next_url
-                        ) as response2:
-
-                            length = response2.headers.get(
-                                "content-length",
-                                ""
-                            )
-
-                            return (
-                                response2.status_code,
-                                int(length) if length.isdigit() else None
-                            )
-
-                return response.status_code, None
-
-            length = response.headers.get(
-                "content-length",
-                ""
-            )
+        with client.stream("GET", media_url) as response:
+            length = response.headers.get("content-length", "")
 
             return (
                 response.status_code,
@@ -283,42 +392,28 @@ def probe(client: httpx.Client, url: str):
         return None, None
 
 
-# ------------------------------------------------------------
-# GIPHY
-# ------------------------------------------------------------
-
-def extract_giphy(
-    url: str,
-    client: httpx.Client
-) -> dict:
-
-    host = hostname(url)
-
-    segs = [
-        segment
-        for segment in urlparse(url).path.split("/")
-        if segment
+def _extract_giphy(url: str, client: httpx.Client) -> dict:
+    parts = [
+        part
+        for part in urlparse(url).path.split("/")
+        if part
     ]
 
-    is_site = host in (
-        "giphy.com",
-        "www.giphy.com"
-    )
-
+    host = hostname(url)
     gif_id = None
     title = None
 
     if (
-        is_site
-        and len(segs) >= 2
-        and segs[0] in (
+        host.endswith("giphy.com")
+        and len(parts) >= 2
+        and parts[0] in (
             "gifs",
             "gif",
             "stickers",
             "embed"
         )
     ):
-        slug = segs[1]
+        slug = parts[1]
         gif_id = slug.rsplit("-", 1)[-1]
 
         if "-" in slug:
@@ -328,16 +423,15 @@ def extract_giphy(
                 .title()
             )
 
-    elif not is_site and segs:
-
-        if segs[0] == "media" and len(segs) >= 2:
+    elif parts:
+        if parts[0] == "media" and len(parts) >= 2:
             gif_id = (
-                segs[-2]
-                if len(segs) >= 3
-                else segs[1]
+                parts[-2]
+                if len(parts) >= 3
+                else parts[1]
             )
         else:
-            gif_id = segs[0].split(".")[0]
+            gif_id = parts[0].split(".")[0]
 
     if (
         not gif_id
@@ -345,24 +439,18 @@ def extract_giphy(
     ):
         raise ExtractionError(
             400,
-            "Couldn't find a Giphy animation in this link. "
-            "Paste a link to a single GIF."
+            "Paste a link to one specific Giphy animation."
         )
 
     formats = []
-    gif_status = None
 
     for ext in ("gif", "mp4"):
-
         media_url = (
             f"https://media.giphy.com/media/"
             f"{gif_id}/giphy.{ext}"
         )
 
-        status, size = probe(client, media_url)
-
-        if ext == "gif":
-            gif_status = status
+        status, size = _probe(client, media_url)
 
         if status == 200:
             formats.append({
@@ -372,17 +460,9 @@ def extract_giphy(
             })
 
     if not formats:
-
-        if gif_status in (404, 403):
-            raise ExtractionError(
-                404,
-                "This Giphy animation wasn't found. "
-                "It may have been removed or be private."
-            )
-
         raise ExtractionError(
-            502,
-            "Couldn't reach Giphy. Please try again."
+            404,
+            "This Giphy animation could not be accessed."
         )
 
     return {
@@ -394,128 +474,151 @@ def extract_giphy(
     }
 
 
-# ------------------------------------------------------------
-# REDDIT
-# ------------------------------------------------------------
-
-def _direct_reddit_media(
-    url: str,
-    client: httpx.Client
-):
-    """Handle direct Reddit animation URLs."""
-
+def _extract_tenor(url: str, client: httpx.Client) -> dict:
     host = hostname(url)
     path = urlparse(url).path
 
-    if host not in (
-        "i.redd.it",
-        "v.redd.it",
-        "preview.redd.it"
+    if (
+        not _host_matches(host, ("tenor.com",))
+        or path in ("", "/")
     ):
-        return None
+        raise ExtractionError(
+            400,
+            "Paste a link to one specific Tenor animation."
+        )
 
-    clean_path = path.split("?")[0]
-
-    ext = (
-        clean_path.rsplit(".", 1)[-1].lower()
-        if "." in clean_path
+    direct_ext = (
+        path.lower().rsplit(".", 1)[-1]
+        if "." in path
         else ""
     )
 
-    if host == "i.redd.it":
+    if direct_ext in ("gif", "mp4"):
+        status, size = _probe(client, url)
 
-        if ext not in ("gif", "mp4"):
+        if status != 200:
             raise ExtractionError(
-                422,
-                "This Reddit image is not an animation."
+                404,
+                "This Tenor media file wasn't found."
             )
 
-    elif host == "v.redd.it":
+        return {
+            "supported": True,
+            "platform": "Tenor",
+            "title": None,
+            "name": "tenor-animation",
+            "formats": [{
+                "format": direct_ext,
+                "url": url,
+                "size": size
+            }]
+        }
 
-        if ext not in ("mp4", "gif"):
-            return None
+    try:
+        response = client.get(url, headers=HEADERS)
 
-    elif host == "preview.redd.it":
-
-        if ext not in ("gif", "mp4"):
-            raise ExtractionError(
-                422,
-                "This Reddit preview is not an animation."
-            )
-
-    status, size = probe(client, url)
-
-    if status != 200:
+    except httpx.HTTPError:
         raise ExtractionError(
-            404,
-            "This Reddit file wasn't found."
+            502,
+            "Couldn't reach Tenor. Please try again."
         )
 
-    name = (
-        clean_path.rsplit("/", 1)[-1]
-        .rsplit(".", 1)[0]
-        or "animation"
+    if response.status_code == 404:
+        raise ExtractionError(
+            404,
+            "This Tenor animation wasn't found."
+        )
+
+    if response.status_code != 200:
+        raise ExtractionError(
+            502,
+            "Tenor did not return the animation page."
+        )
+
+    html = response.text or ""
+
+    def meta_value(prop):
+        pattern = (
+            rf'<meta[^>]+(?:property|name)='
+            rf'["\']{re.escape(prop)}["\'][^>]+content='
+            rf'["\']([^"\']+)["\']'
+        )
+
+        match = re.search(pattern, html, re.I)
+
+        if not match:
+            pattern = (
+                rf'<meta[^>]+content=["\']([^"\']+)["\']'
+                rf'[^>]+(?:property|name)='
+                rf'["\']{re.escape(prop)}["\']'
+            )
+
+            match = re.search(pattern, html, re.I)
+
+        return match.group(1) if match else None
+
+    found = {}
+
+    video_url = (
+        meta_value("og:video")
+        or meta_value("og:video:url")
     )
+
+    image_url = meta_value("og:image")
+
+    if video_url and is_media_host(video_url):
+        found["mp4"] = video_url
+
+    if (
+        image_url
+        and is_media_host(image_url)
+        and image_url.lower().split("?")[0].endswith(".gif")
+    ):
+        found["gif"] = image_url
+
+    formats = []
+
+    for ext in ("gif", "mp4"):
+        if ext in found:
+            _, size = _probe(client, found[ext])
+
+            formats.append({
+                "format": ext,
+                "url": found[ext],
+                "size": size
+            })
+
+    if not formats:
+        raise ExtractionError(
+            422,
+            "No downloadable animation was exposed by this Tenor page."
+        )
+
+    slug = re.sub(
+        r"[^A-Za-z0-9._-]",
+        "-",
+        path.strip("/").split("/")[-1]
+    )[:60]
 
     return {
         "supported": True,
-        "platform": "Reddit",
-        "title": None,
-        "name": f"reddit-{name}",
-        "formats": [{
-            "format": ext,
-            "url": url,
-            "size": size
-        }]
+        "platform": "Tenor",
+        "title": meta_value("og:title"),
+        "name": f"tenor-{slug or 'animation'}",
+        "formats": formats
     }
 
 
-def extract_reddit(
+def _extract_reddit_fallback(
     url: str,
     client: httpx.Client
 ) -> dict:
-
-    host = hostname(url)
     path = urlparse(url).path
-
-    direct = _direct_reddit_media(url, client)
-
-    if direct is not None:
-        return direct
-
-    if host in ("redd.it", "v.redd.it") or "/s/" in path:
-
-        try:
-            resolved = resolve_redirects(
-                client,
-                url,
-                headers=REDDIT_HEADERS
-            )
-
-        except ExtractionError:
-            raise
-
-        except httpx.HTTPError:
-            raise ExtractionError(
-                502,
-                "Couldn't open this Reddit short link. "
-                "Try the full post link."
-            )
-
-        path = urlparse(resolved).path
-
-        media_again = _direct_reddit_media(
-            resolved,
-            client
-        )
-
-        if media_again is not None:
-            return media_again
 
     if "/comments/" not in path:
         raise ExtractionError(
             400,
-            "This doesn't look like a link to a Reddit post."
+            "Paste a link to one Reddit post."
         )
 
     json_url = (
@@ -523,20 +626,16 @@ def extract_reddit(
         f"{path.rstrip('/')}.json"
     )
 
-    if (
-        not is_approved_redirect_host(json_url)
-        or not is_public_hostname("www.reddit.com")
-    ):
-        raise ExtractionError(
-            400,
-            "Refusing to fetch from an unapproved host."
-        )
-
     try:
         response = client.get(
             json_url,
             params={"raw_json": 1},
-            headers=REDDIT_HEADERS
+            headers={
+                "User-Agent": (
+                    "web:happygif:2.0 "
+                    "(public media extractor)"
+                )
+            }
         )
 
     except httpx.HTTPError:
@@ -545,33 +644,10 @@ def extract_reddit(
             "Couldn't reach Reddit. Please try again."
         )
 
-    if response.status_code == 404:
-        raise ExtractionError(
-            404,
-            "This Reddit post wasn't found. "
-            "It may have been deleted."
-        )
-
-    if response.status_code == 403:
-        raise ExtractionError(
-            403,
-            "Reddit is blocking this server. "
-            "This can happen on cloud hosts such as Render. "
-            "Try another supported source."
-        )
-
-    if response.status_code == 429:
-        raise ExtractionError(
-            429,
-            "Reddit is rate limiting us. "
-            "Wait a minute and try again."
-        )
-
     if response.status_code != 200:
         raise ExtractionError(
             502,
-            "Reddit returned an unexpected response. "
-            "Please try again."
+            "Reddit did not make this post available to HappyGif."
         )
 
     try:
@@ -591,21 +667,11 @@ def extract_reddit(
             "Couldn't read this Reddit post."
         )
 
-    if post.get("crosspost_parent_list"):
-        post = post["crosspost_parent_list"][0]
-
-    if post.get("is_gallery"):
-        raise ExtractionError(
-            422,
-            "This is a Reddit gallery. "
-            "Paste a link to a single animation post."
-        )
-
     found = {}
 
-    def add(fmt, media_url):
+    def add(ext, media_url):
         if media_url and is_media_host(media_url):
-            found.setdefault(fmt, media_url)
+            found.setdefault(ext, media_url)
 
     dest = (
         post.get("url_overridden_by_dest")
@@ -613,33 +679,15 @@ def extract_reddit(
         or ""
     )
 
-    dest_host = hostname(dest)
-
-    if (
-        dest_host == "i.redd.it"
-        and dest.split("?")[0].lower().endswith(".gif")
-    ):
+    if dest.lower().split("?")[0].endswith(".gif"):
         add("gif", dest)
 
-    elif (
-        dest_host in ("v.redd.it", "i.redd.it")
-        and dest.split("?")[0].lower().endswith(
-            (".mp4", ".gif")
-        )
-    ):
-        ext = (
-            dest.split("?")[0]
-            .rsplit(".", 1)[-1]
-            .lower()
-        )
-
-        add(ext, dest)
-
     video = (
-        post.get("media") or {}
-    ).get("reddit_video") or {}
+        (post.get("media") or {})
+        .get("reddit_video") or {}
+    )
 
-    if video.get("is_gif"):
+    if video.get("is_gif") or video.get("fallback_url"):
         add("mp4", video.get("fallback_url"))
 
     preview = post.get("preview") or {}
@@ -667,30 +715,21 @@ def extract_reddit(
         ).get("url")
     )
 
-    add(
-        "mp4",
-        (
-            preview.get("reddit_video_preview") or {}
-        ).get("fallback_url")
-    )
-
     if not found:
         raise ExtractionError(
             422,
-            "No animation found in this post. "
-            "It may be a still image, text, or a regular video."
+            "No downloadable GIF or MP4 was found in this Reddit post."
         )
 
     formats = []
 
-    for fmt in ("gif", "mp4"):
-
-        if fmt in found:
-            _, size = probe(client, found[fmt])
+    for ext in ("gif", "mp4"):
+        if ext in found:
+            _, size = _probe(client, found[ext])
 
             formats.append({
-                "format": fmt,
-                "url": found[fmt],
+                "format": ext,
+                "url": found[ext],
                 "size": size
             })
 
@@ -703,252 +742,36 @@ def extract_reddit(
     }
 
 
-# ------------------------------------------------------------
-# TENOR
-# ------------------------------------------------------------
-
-def extract_tenor(
-    url: str,
-    client: httpx.Client
-) -> dict:
-    """Extract GIF/MP4 from a Tenor page or direct media URL."""
-
-    host = hostname(url)
-    path = urlparse(url).path
-
-    # Direct media link
-    if (
-        _host_matches(host, ("tenor.com", "c.tenor.com"))
-        and path
-    ):
-
-        lower = path.lower()
-
-        if lower.endswith((".gif", ".mp4", ".webm")):
-
-            ext = lower.rsplit(".", 1)[-1]
-
-            if ext == "webm":
-                ext = "mp4"
-
-            status, size = probe(client, url)
-
-            if status != 200:
-                raise ExtractionError(
-                    404,
-                    "This Tenor file wasn't found."
-                )
-
-            name = (
-                path.rsplit("/", 1)[-1]
-                .rsplit(".", 1)[0]
-                or "tenor"
-            )
-
-            return {
-                "supported": True,
-                "platform": "Tenor",
-                "title": None,
-                "name": f"tenor-{name}",
-                "formats": [{
-                    "format": "gif" if ext == "gif" else "mp4",
-                    "url": url,
-                    "size": size
-                }]
-            }
-
-    if "tenor.com" not in host:
-        raise ExtractionError(
-            400,
-            "Couldn't find a Tenor animation in this link."
-        )
-
-    if not path or path == "/":
-        raise ExtractionError(
-            400,
-            "Paste a link to a specific Tenor animation."
-        )
-
-    try:
-        response = client.get(
-            url,
-            headers=HEADERS
-        )
-
-    except httpx.HTTPError:
-        raise ExtractionError(
-            502,
-            "Couldn't reach Tenor. Please try again."
-        )
-
-    if response.status_code == 404:
-        raise ExtractionError(
-            404,
-            "This Tenor animation wasn't found."
-        )
-
-    if response.status_code != 200:
-        raise ExtractionError(
-            502,
-            "Tenor returned an unexpected response. "
-            "Please try again."
-        )
-
-    html = response.text or ""
-
-    og_video = re.search(
-        r'<meta[^>]+property=["\']og:video["\'][^>]+content=["\']([^"\']+)["\']',
-        html,
-        re.I
-    ) or re.search(
-        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:video["\']',
-        html,
-        re.I
-    )
-
-    og_image = re.search(
-        r'<meta[^>]+property=["\']og:image["\'][^>]+content=["\']([^"\']+)["\']',
-        html,
-        re.I
-    ) or re.search(
-        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:image["\']',
-        html,
-        re.I
-    )
-
-    og_title = re.search(
-        r'<meta[^>]+property=["\']og:title["\'][^>]+content=["\']([^"\']+)["\']',
-        html,
-        re.I
-    ) or re.search(
-        r'<meta[^>]+content=["\']([^"\']+)["\'][^>]+property=["\']og:title["\']',
-        html,
-        re.I
-    )
-
-    found = {}
-
-    if og_video:
-        video_url = og_video.group(1)
-
-        if is_media_host(video_url):
-            found["mp4"] = video_url
-
-    if og_image:
-        image_url = og_image.group(1)
-
-        if (
-            is_media_host(image_url)
-            and image_url.lower().split("?")[0].endswith(".gif")
-        ):
-            found["gif"] = image_url
-
-    if not found:
-        raise ExtractionError(
-            422,
-            "No animation found on this Tenor page. "
-            "Try a direct GIF link or another post."
-        )
-
-    title = (
-        og_title.group(1).strip()
-        if og_title
-        else None
-    )
-
-    slug = [
-        segment
-        for segment in path.split("/")
-        if segment
-    ]
-
-    name_part = slug[-1] if slug else "animation"
-
-    name_part = re.sub(
-        r"[^A-Za-z0-9._-]",
-        "-",
-        name_part
-    )[:60]
-
-    formats = []
-
-    for fmt in ("gif", "mp4"):
-
-        if fmt in found:
-            _, size = probe(client, found[fmt])
-
-            formats.append({
-                "format": fmt,
-                "url": found[fmt],
-                "size": size
-            })
-
-    return {
-        "supported": True,
-        "platform": "Tenor",
-        "title": title,
-        "name": f"tenor-{name_part}",
-        "formats": formats
-    }
-
-
-# ------------------------------------------------------------
-# X / TWITTER
-# ------------------------------------------------------------
-
-def extract_x(
-    url: str,
-    client: httpx.Client
-) -> dict:
-    """Extract animated media from a public X post."""
-
-    path = urlparse(url).path
-
+def _extract_x_fallback(url: str, client: httpx.Client) -> dict:
     match = re.search(
         r"/status/(\d+)",
-        path
+        urlparse(url).path
     )
 
     if not match:
         raise ExtractionError(
             400,
-            "Paste a link to a single X post."
+            "Paste a link to one X post."
         )
 
     status_id = match.group(1)
 
-    api_url = (
-        f"https://api.fxtwitter.com/status/{status_id}"
-    )
-
     try:
         response = client.get(
-            api_url,
+            f"https://api.fxtwitter.com/status/{status_id}",
             headers=HEADERS
         )
 
     except httpx.HTTPError:
         raise ExtractionError(
             502,
-            "Couldn't reach X media lookup. Please try again."
-        )
-
-    if response.status_code == 404:
-        raise ExtractionError(
-            404,
-            "This X post wasn't found. It may have been deleted or is private."
-        )
-
-    if response.status_code == 429:
-        raise ExtractionError(
-            429,
-            "X lookup is rate limiting us. Wait a minute and try again."
+            "Couldn't reach X media lookup."
         )
 
     if response.status_code != 200:
         raise ExtractionError(
             502,
-            "Couldn't read this X post. Please try again."
+            "X did not make this post available to HappyGif."
         )
 
     try:
@@ -958,163 +781,110 @@ def extract_x(
     except (ValueError, TypeError):
         raise ExtractionError(
             502,
-            "Couldn't parse this X post."
-        )
-
-    if not isinstance(tweet, dict):
-        raise ExtractionError(
-            502,
-            "Couldn't parse this X post."
+            "Couldn't read this X post."
         )
 
     media = tweet.get("media") or {}
 
-    items = []
+    items = (
+        list(media.get("all") or [])
+        if isinstance(media, dict)
+        else media if isinstance(media, list)
+        else []
+    )
 
-    if isinstance(media, dict):
-
-        items = list(media.get("all") or [])
-
-        for video in media.get("videos") or []:
-            if video not in items:
-                items.append(video)
-
-    elif isinstance(media, list):
-        items = media
-
-    mp4_url = None
-    best_bitrate = -1
+    best_url = None
+    best_rate = -1
 
     for item in items:
-
         if not isinstance(item, dict):
             continue
 
-        kind = (
-            item.get("type")
-            or item.get("format")
-            or ""
-        ).lower()
+        for fmt in item.get("formats") or []:
+            if (
+                not isinstance(fmt, dict)
+                or (fmt.get("container") or "").lower() != "mp4"
+            ):
+                continue
 
-        if kind not in (
-            "video",
-            "gif",
-            "animated_gif",
-            "video/mp4"
+            candidate = fmt.get("url") or ""
+
+            if (
+                is_media_host(candidate)
+                and int(fmt.get("bitrate") or 0) >= best_rate
+            ):
+                best_rate = int(fmt.get("bitrate") or 0)
+                best_url = candidate
+
+        candidate = item.get("url") or ""
+
+        if (
+            not best_url
+            and is_media_host(candidate)
+            and ".mp4" in candidate.lower()
         ):
+            best_url = candidate
 
-            if (
-                "video" not in kind
-                and "gif" not in kind
-            ):
-                continue
-
-        formats = item.get("formats") or []
-
-        for fmt in formats:
-
-            if not isinstance(fmt, dict):
-                continue
-
-            if (
-                fmt.get("container") or ""
-            ).lower() != "mp4":
-                continue
-
-            media_url = fmt.get("url") or ""
-
-            if (
-                not media_url
-                or not is_media_host(media_url)
-            ):
-                continue
-
-            bitrate = int(
-                fmt.get("bitrate") or 0
-            )
-
-            if bitrate >= best_bitrate:
-                best_bitrate = bitrate
-                mp4_url = media_url
-
-        if mp4_url is None:
-
-            media_url = item.get("url") or ""
-
-            if (
-                media_url
-                and is_media_host(media_url)
-                and ".mp4" in media_url.lower()
-            ):
-                mp4_url = media_url
-
-    if not mp4_url:
+    if not best_url:
         raise ExtractionError(
             422,
-            "No animation found in this X post. "
-            "It may be text or still images only."
+            "No downloadable animation was found in this X post."
         )
 
-    _, size = probe(client, mp4_url)
-
-    title = (
-        tweet.get("text") or ""
-    ).strip() or None
-
-    if title and len(title) > 120:
-        title = title[:117] + "…"
-
-    name = f"x-{status_id}"
+    _, size = _probe(client, best_url)
+    title = (tweet.get("text") or "").strip() or None
 
     return {
         "supported": True,
         "platform": "X",
         "title": title,
-        "name": name,
+        "name": f"x-{status_id}",
         "formats": [{
             "format": "mp4",
-            "url": mp4_url,
+            "url": best_url,
             "size": size
         }]
     }
 
 
-# ------------------------------------------------------------
-# EXTRACTOR DISPATCHER
-# ------------------------------------------------------------
-
-EXTRACTORS = {
-    "Giphy": extract_giphy,
-    "Reddit": extract_reddit,
-    "Tenor": extract_tenor,
-    "X": extract_x
-}
-
-
 def extract(
     url: str,
     platform: str,
-    client: httpx.Client
+    client: httpx.Client | None = None
 ) -> dict:
+    """Use legacy HappyGif resolvers for Giphy/Tenor and yt-dlp for others."""
 
-    extractor = EXTRACTORS.get(platform)
+    if client is None:
+        with make_client() as owned_client:
+            return extract(url, platform, owned_client)
 
-    if extractor is None:
-        raise ExtractionError(
-            501,
-            f"{platform} links are recognized, but downloading "
-            f"from {platform} isn't available yet. "
-            "Giphy, Reddit, Tenor, and X work for now."
-        )
+    if platform == "Giphy":
+        return _extract_giphy(url, client)
 
-    try:
-        return extractor(url, client)
+    if platform == "Tenor":
+        try:
+            return _extract_tenor(url, client)
+        except ExtractionError:
+            # Some Tenor pages expose video metadata more reliably
+            # through yt-dlp's generic extractor.
+            return _extract_with_ytdlp(url, platform, client)
 
-    except ExtractionError:
-        raise
+    if platform == "Reddit":
+        try:
+            return _extract_with_ytdlp(url, platform, client)
+        except ExtractionError:
+            return _extract_reddit_fallback(url, client)
 
-    except httpx.HTTPError:
-        raise ExtractionError(
-            502,
-            f"Couldn't reach {platform}. Please try again."
-        )
+    if platform == "X":
+        try:
+            return _extract_with_ytdlp(url, platform, client)
+        except ExtractionError:
+            return _extract_x_fallback(url, client)
+
+    if platform in ("Instagram", "TikTok", "Pinterest"):
+        return _extract_with_ytdlp(url, platform, client)
+
+    raise ExtractionError(
+        501,
+        "This platform is not supported yet."
+    )
