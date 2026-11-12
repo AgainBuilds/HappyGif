@@ -1,6 +1,6 @@
+
 from pathlib import Path
 from urllib.parse import urlparse
-
 import re
 
 import httpx
@@ -12,7 +12,7 @@ from extractors import ExtractionError, extract, is_media_host, make_client
 
 BASE_DIR = Path(__file__).resolve().parent
 
-app = FastAPI(title="GIFReaper", version="0.6.0")
+app = FastAPI(title="HappyGif", version="1.0.0")
 
 
 PLATFORMS = {
@@ -38,9 +38,11 @@ class DetectRequest(BaseModel):
 
 def detect_platform(url: str):
     hostname = (urlparse(str(url)).hostname or "").lower().rstrip(".")
+
     for domain, platform in PLATFORMS.items():
         if hostname == domain or hostname.endswith("." + domain):
             return platform
+
     return None
 
 
@@ -49,25 +51,57 @@ def homepage():
     return FileResponse(BASE_DIR / "index.html")
 
 
+@app.get("/robots.txt", include_in_schema=False)
+def robots():
+    return FileResponse(
+        BASE_DIR / "robots.txt",
+        media_type="text/plain"
+    )
+
+
+@app.get("/sitemap.xml", include_in_schema=False)
+def sitemap():
+    return FileResponse(
+        BASE_DIR / "sitemap.xml",
+        media_type="application/xml"
+    )
+
+
+@app.get("/favicon.svg", include_in_schema=False)
+def favicon():
+    return FileResponse(
+        BASE_DIR / "favicon.svg",
+        media_type="image/svg+xml"
+    )
+
+
 @app.get("/style.css", include_in_schema=False)
 def css():
-    return FileResponse(BASE_DIR / "style.css", media_type="text/css")
+    return FileResponse(
+        BASE_DIR / "style.css",
+        media_type="text/css"
+    )
 
 
 @app.get("/app.js", include_in_schema=False)
 def js():
-    return FileResponse(BASE_DIR / "app.js", media_type="application/javascript")
+    return FileResponse(
+        BASE_DIR / "app.js",
+        media_type="application/javascript"
+    )
 
 
 @app.post("/api/detect")
 def detect_link(data: DetectRequest):
     platform = detect_platform(str(data.url))
+
     if platform is None:
         return {
             "supported": False,
             "platform": None,
             "message": "This platform is not supported yet.",
         }
+
     if platform in EXTRACTABLE:
         message = f"{platform} link recognized. Ready to extract."
     else:
@@ -75,65 +109,126 @@ def detect_link(data: DetectRequest):
             f"{platform} link recognized, but downloading from {platform} "
             "isn't available yet. Giphy, Reddit, Tenor, and X work for now."
         )
-    return {"supported": True, "platform": platform, "message": message}
+
+    return {
+        "supported": True,
+        "platform": platform,
+        "message": message,
+    }
 
 
 @app.post("/api/extract")
 def extract_link(data: DetectRequest):
     url = str(data.url)
     platform = detect_platform(url)
+
     if platform is None:
-        raise HTTPException(400, "This platform is not supported yet.")
+        raise HTTPException(
+            400,
+            "This platform is not supported yet."
+        )
+
     with make_client() as client:
         try:
             return extract(url, platform, client)
         except ExtractionError as error:
-            raise HTTPException(error.status, error.message)
+            raise HTTPException(
+                error.status,
+                error.message
+            )
 
 
 MAX_DOWNLOAD_BYTES = 100 * 1024 * 1024
 
 
 @app.get("/api/file")
-async def download_file(url: str, name: str = "animation"):
+async def download_file(
+    url: str,
+    name: str = "animation"
+):
     if not is_media_host(url):
-        raise HTTPException(400, "That file host is not allowed.")
-    filename = re.sub(r"[^A-Za-z0-9._-]", "_", name)[:80] or "animation"
-    client = httpx.AsyncClient(timeout=30, follow_redirects=False)
+        raise HTTPException(
+            400,
+            "That file host is not allowed."
+        )
+
+    filename = re.sub(
+        r"[^A-Za-z0-9._-]",
+        "_",
+        name
+    )[:80] or "animation"
+
+    client = httpx.AsyncClient(
+        timeout=30,
+        follow_redirects=False
+    )
+
     try:
-        upstream = await client.send(client.build_request("GET", url), stream=True)
+        upstream = await client.send(
+            client.build_request("GET", url),
+            stream=True
+        )
     except httpx.HTTPError:
         await client.aclose()
-        raise HTTPException(502, "Couldn't fetch the file.")
+        raise HTTPException(
+            502,
+            "Couldn't fetch the file."
+        )
 
     length = upstream.headers.get("content-length", "")
-    if upstream.status_code != 200 or (length.isdigit() and int(length) > MAX_DOWNLOAD_BYTES):
+
+    if (
+        upstream.status_code != 200
+        or (
+            length.isdigit()
+            and int(length) > MAX_DOWNLOAD_BYTES
+        )
+    ):
         await upstream.aclose()
         await client.aclose()
-        raise HTTPException(502, "The file isn't available or is too large.")
+
+        raise HTTPException(
+            502,
+            "The file isn't available or is too large."
+        )
 
     async def body():
         total = 0
+
         try:
             async for chunk in upstream.aiter_bytes():
                 total += len(chunk)
+
                 if total > MAX_DOWNLOAD_BYTES:
                     break
+
                 yield chunk
+
         finally:
             await upstream.aclose()
             await client.aclose()
 
-    headers = {"Content-Disposition": f'attachment; filename="{filename}"'}
+    headers = {
+        "Content-Disposition": f'attachment; filename="{filename}"'
+    }
+
     if length.isdigit():
         headers["Content-Length"] = length
+
     return StreamingResponse(
         body(),
-        media_type=upstream.headers.get("content-type", "application/octet-stream"),
+        media_type=upstream.headers.get(
+            "content-type",
+            "application/octet-stream"
+        ),
         headers=headers,
     )
 
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "service": "gifreaper", "version": "0.6.0"}
+    return {
+        "status": "ok",
+        "service": "happygif",
+        "version": "1.0.0"
+    }
