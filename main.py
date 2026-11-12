@@ -75,6 +75,15 @@ def favicon():
     )
 
 
+# Google Search Console verification
+@app.get("/google09b76268addd1d3b.html", include_in_schema=False)
+def google_site_verification():
+    return FileResponse(
+        BASE_DIR / "google09b76268addd1d3b.html",
+        media_type="text/html"
+    )
+
+
 @app.get("/style.css", include_in_schema=False)
 def css():
     return FileResponse(
