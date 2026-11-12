@@ -1,0 +1,6 @@
+
+User-agent: *
+Allow: /
+Disallow: /api/
+
+Sitemap: https://happygif.onrender.com/sitemap.xml
