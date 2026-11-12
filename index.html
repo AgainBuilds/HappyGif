@@ -1,4 +1,3 @@
-
 <!doctype html>
 <html lang="en">
 <head>
@@ -7,7 +6,7 @@
 
   <title>HappyGif — Download GIFs Online</title>
 
-  <meta name="description" content="Download GIFs and animated media from Giphy, Reddit, Tenor and X. Paste a public link, preview the animation and save it with HappyGif.">
+  <meta name="description" content="Download GIFs and animated media from Giphy, Reddit, Tenor, X, Instagram, TikTok and Pinterest when publicly accessible. Paste a link, preview available media and save it with HappyGif.">
 
   <meta name="robots" content="index, follow, max-image-preview:large">
   <meta name="theme-color" content="#0b1020">
@@ -20,13 +19,13 @@
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="HappyGif">
   <meta property="og:title" content="HappyGif — Download GIFs Online">
-  <meta property="og:description" content="Paste a public link from Giphy, Reddit, Tenor or X. Preview the animation and download it with HappyGif.">
+  <meta property="og:description" content="Paste a public link from a supported platform. Preview available media and download it with HappyGif.">
   <meta property="og:url" content="https://happygif.onrender.com/">
 
   <!-- X / Twitter -->
   <meta name="twitter:card" content="summary">
   <meta name="twitter:title" content="HappyGif — Download GIFs Online">
-  <meta name="twitter:description" content="Download GIFs and animated media from supported links with HappyGif.">
+  <meta name="twitter:description" content="Download GIFs and supported animated media from public links with HappyGif.">
 
   <!-- Search engine structured data -->
   <script type="application/ld+json">
@@ -35,7 +34,7 @@
     "@type": "WebApplication",
     "name": "HappyGif",
     "url": "https://happygif.onrender.com/",
-    "description": "An online tool for previewing and downloading GIFs and animated media from supported Giphy, Reddit, Tenor and X links.",
+    "description": "An online tool for previewing and downloading GIFs and animated media from supported public links on Giphy, Reddit, Tenor, X, Instagram, TikTok and Pinterest.",
     "applicationCategory": "UtilitiesApplication",
     "operatingSystem": "Any",
     "offers": {
@@ -65,7 +64,7 @@
         "name": "Which platforms does HappyGif support?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "HappyGif currently extracts downloadable media from Giphy, Reddit, Tenor and X. Pinterest, Instagram and TikTok links can be recognized, but downloading from those platforms is not available yet."
+          "text": "HappyGif extracts downloadable media from Giphy, Reddit, Tenor and X, and attempts best-effort extraction from publicly accessible Instagram, TikTok and Pinterest posts. Results vary by post and platform restrictions."
         }
       },
       {
@@ -81,7 +80,15 @@
         "name": "Why does an X download save as an MP4?",
         "acceptedAnswer": {
           "@type": "Answer",
-          "text": "Animated media from X is delivered as MP4 video, so HappyGif provides the available MP4 download."
+          "text": "Animated media from X is often delivered as MP4 video, so HappyGif provides the available MP4 download."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Can HappyGif download private posts?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "No. HappyGif does not bypass private-account restrictions or login requirements. Only publicly accessible media that can be retrieved is supported."
         }
       }
     ]
@@ -112,7 +119,7 @@
 
       <p class="intro">
         Download GIFs and animated media from supported platforms.
-        Paste a public link, preview the animation, then save it to your device.
+        Paste a public link, preview available media, then save it to your device.
       </p>
 
       <form id="extract-form" class="extract-card">
@@ -151,15 +158,16 @@
           <span class="live">Reddit</span>
           <span class="live">Tenor</span>
           <span class="live">X</span>
-          <span>Pinterest</span>
-          <span>Instagram</span>
-          <span>TikTok</span>
+          <span class="live">Instagram*</span>
+          <span class="live">TikTok*</span>
+          <span class="live">Pinterest*</span>
         </div>
 
         <small>
-          Giphy, Reddit, Tenor and X downloads are supported.
-          Pinterest, Instagram and TikTok links are recognized,
-          but downloading is not available yet.
+          Giphy, Reddit, Tenor and X have dedicated extraction support.
+          Instagram, TikTok and Pinterest use best-effort public-link extraction.
+          Some posts may not expose downloadable media.
+          Private or login-restricted posts are not supported.
         </small>
 
       </div>
@@ -179,7 +187,7 @@
         <h2>How to use the HappyGif downloader</h2>
 
         <ol>
-          <li>Open a public GIF or animation post on Giphy, Reddit, Tenor or X.</li>
+          <li>Open a public GIF or animation post on a supported platform.</li>
           <li>Copy the link to that specific post or animation.</li>
           <li>Paste the link into HappyGif and select <strong>Extract</strong>.</li>
           <li>Preview the result and choose an available download format.</li>
@@ -190,10 +198,12 @@
         <p>
           HappyGif currently extracts downloadable animations from
           <strong>Giphy, Reddit, Tenor and X</strong>.
-          X animated posts are provided as MP4 files because that is
-          the media format available from X.
-          Pinterest, Instagram and TikTok links can be recognized,
-          but their download support has not been implemented yet.
+          It also attempts best-effort extraction from publicly accessible
+          <strong>Instagram, TikTok and Pinterest</strong> posts.
+          Results depend on the post, media type and platform restrictions.
+          Some posts may not expose a downloadable file.
+          Private posts and content requiring a login are not supported.
+          X animated posts are provided as MP4 when that is the available format.
         </p>
 
         <h2>Frequently asked questions</h2>
@@ -220,17 +230,27 @@
             <summary>Why can't HappyGif download some links?</summary>
             <p>
               A post may be private, removed, unavailable, or hosted on
-              a platform that HappyGif does not yet support for downloads.
-              Some platforms may also restrict automated access.
+              a platform that restricts automated access. Some posts
+              may also contain still images rather than downloadable
+              GIF or video media.
             </p>
           </details>
 
           <details>
             <summary>Can I download content from any platform?</summary>
             <p>
-              Not yet. Download extraction currently supports Giphy,
-              Reddit, Tenor and X. Other platforms may be recognized
-              without being downloadable.
+              HappyGif supports Giphy, Reddit, Tenor and X, and attempts
+              extraction from public Instagram, TikTok and Pinterest links.
+              Availability depends on the post and platform restrictions.
+            </p>
+          </details>
+
+          <details>
+            <summary>Can HappyGif download private posts?</summary>
+            <p>
+              No. HappyGif does not bypass private-account restrictions
+              or login requirements. Only publicly accessible media
+              that can be retrieved is supported.
             </p>
           </details>
 
