@@ -1,56 +1,257 @@
+
 <!doctype html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="referrer" content="no-referrer">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="description" content="Extract and download animations from supported social-media links.">
-  <title>GIFReaper — Save what moves</title>
+
+  <title>HappyGif — Download GIFs Online</title>
+
+  <meta name="description" content="Download GIFs and animated media from Giphy, Reddit, Tenor and X. Paste a public link, preview the animation and save it with HappyGif.">
+
+  <meta name="robots" content="index, follow, max-image-preview:large">
+  <meta name="theme-color" content="#0b1020">
+
+  <link rel="canonical" href="https://happygif.onrender.com/">
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg">
   <link rel="stylesheet" href="/style.css">
+
+  <!-- Open Graph -->
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="HappyGif">
+  <meta property="og:title" content="HappyGif — Download GIFs Online">
+  <meta property="og:description" content="Paste a public link from Giphy, Reddit, Tenor or X. Preview the animation and download it with HappyGif.">
+  <meta property="og:url" content="https://happygif.onrender.com/">
+
+  <!-- X / Twitter -->
+  <meta name="twitter:card" content="summary">
+  <meta name="twitter:title" content="HappyGif — Download GIFs Online">
+  <meta name="twitter:description" content="Download GIFs and animated media from supported links with HappyGif.">
+
+  <!-- Search engine structured data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "WebApplication",
+    "name": "HappyGif",
+    "url": "https://happygif.onrender.com/",
+    "description": "An online tool for previewing and downloading GIFs and animated media from supported Giphy, Reddit, Tenor and X links.",
+    "applicationCategory": "UtilitiesApplication",
+    "operatingSystem": "Any",
+    "offers": {
+      "@type": "Offer",
+      "price": "0",
+      "priceCurrency": "USD"
+    }
+  }
+  </script>
+
+  <!-- FAQ structured data -->
+  <script type="application/ld+json">
+  {
+    "@context": "https://schema.org",
+    "@type": "FAQPage",
+    "mainEntity": [
+      {
+        "@type": "Question",
+        "name": "How do I download a GIF with HappyGif?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Copy a public animation link from a supported platform, paste it into HappyGif, select Extract, preview the result and choose an available download format."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Which platforms does HappyGif support?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "HappyGif currently extracts downloadable media from Giphy, Reddit, Tenor and X. Pinterest, Instagram and TikTok links can be recognized, but downloading from those platforms is not available yet."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Does HappyGif require an account?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "No. HappyGif can be used without creating an account."
+        }
+      },
+      {
+        "@type": "Question",
+        "name": "Why does an X download save as an MP4?",
+        "acceptedAnswer": {
+          "@type": "Answer",
+          "text": "Animated media from X is delivered as MP4 video, so HappyGif provides the available MP4 download."
+        }
+      }
+    ]
+  }
+  </script>
 </head>
+
 <body>
   <main class="page">
-    <nav class="nav">
-      <a class="brand" href="/" aria-label="GIFReaper home">
-        <span class="brand-mark">G</span><span>GIFREAPER</span>
+
+    <nav class="nav" aria-label="Main navigation">
+      <a class="brand" href="/" aria-label="HappyGif home">
+        <span class="brand-mark">H</span>
+        <span>HAPPYGIF</span>
       </a>
-      <span class="nav-note">ANIMATION DOWNLOADER</span>
+
+      <span class="nav-note">GIF & ANIMATION DOWNLOADER</span>
     </nav>
 
     <section class="hero">
-      <div class="eyebrow"><span class="pulse"></span> SIMPLE. FAST. NO ACCOUNT.</div>
+
+      <div class="eyebrow">
+        <span class="pulse"></span>
+        SIMPLE. FAST. NO ACCOUNT.
+      </div>
+
       <h1>Save what<br><span>moves.</span></h1>
-      <p class="intro">Paste a link to an animation from a supported platform. Preview it, then save it to your device.</p>
+
+      <p class="intro">
+        Download GIFs and animated media from supported platforms.
+        Paste a public link, preview the animation, then save it to your device.
+      </p>
 
       <form id="extract-form" class="extract-card">
+
         <label for="media-url">PASTE ANIMATION LINK</label>
+
         <div class="input-row">
-          <input id="media-url" name="url" type="url"
-                 placeholder="https://..." autocomplete="url" required>
-          <button id="extract-button" type="submit">Extract <span aria-hidden="true">↗</span></button>
+          <input
+            id="media-url"
+            name="url"
+            type="url"
+            placeholder="https://..."
+            autocomplete="url"
+            required
+          >
+
+          <button id="extract-button" type="submit">
+            Extract <span aria-hidden="true">↗</span>
+          </button>
         </div>
+
         <p id="message" class="message" role="status" aria-live="polite">
           Paste a public link from a supported platform.
         </p>
+
       </form>
 
       <div id="result"></div>
 
       <div class="supported">
+
         <span>PLATFORMS</span>
+
         <div class="platforms">
-          <span class="live">Giphy</span><span class="live">Reddit</span><span class="live">Tenor</span><span class="live">X</span>
-          <span>Pinterest</span><span>Instagram</span><span>TikTok</span>
+          <span class="live">Giphy</span>
+          <span class="live">Reddit</span>
+          <span class="live">Tenor</span>
+          <span class="live">X</span>
+          <span>Pinterest</span>
+          <span>Instagram</span>
+          <span>TikTok</span>
         </div>
-        <small>Giphy, Reddit, Tenor, and X downloads work now. The others are recognized but not downloadable yet.</small>
+
+        <small>
+          Giphy, Reddit, Tenor and X downloads are supported.
+          Pinterest, Instagram and TikTok links are recognized,
+          but downloading is not available yet.
+        </small>
+
       </div>
+
+      <!-- Search engine content -->
+      <section class="seo-content" aria-labelledby="how-it-works">
+
+        <h2 id="how-it-works">Download GIFs online with HappyGif</h2>
+
+        <p>
+          HappyGif is a free online GIF downloader that helps you save
+          animated media from supported public links. Copy the link to
+          a specific animation, paste it above and let HappyGif check
+          which downloadable formats are available.
+        </p>
+
+        <h2>How to use the HappyGif downloader</h2>
+
+        <ol>
+          <li>Open a public GIF or animation post on Giphy, Reddit, Tenor or X.</li>
+          <li>Copy the link to that specific post or animation.</li>
+          <li>Paste the link into HappyGif and select <strong>Extract</strong>.</li>
+          <li>Preview the result and choose an available download format.</li>
+        </ol>
+
+        <h2>Supported GIF download platforms</h2>
+
+        <p>
+          HappyGif currently extracts downloadable animations from
+          <strong>Giphy, Reddit, Tenor and X</strong>.
+          X animated posts are provided as MP4 files because that is
+          the media format available from X.
+          Pinterest, Instagram and TikTok links can be recognized,
+          but their download support has not been implemented yet.
+        </p>
+
+        <h2>Frequently asked questions</h2>
+
+        <div class="faq-list">
+
+          <details>
+            <summary>Is HappyGif free to use?</summary>
+            <p>
+              Yes. HappyGif is currently free to use and does not
+              require an account.
+            </p>
+          </details>
+
+          <details>
+            <summary>Do I need to install an app?</summary>
+            <p>
+              No. HappyGif runs in your web browser. Open the website,
+              paste a supported public link and extract the animation.
+            </p>
+          </details>
+
+          <details>
+            <summary>Why can't HappyGif download some links?</summary>
+            <p>
+              A post may be private, removed, unavailable, or hosted on
+              a platform that HappyGif does not yet support for downloads.
+              Some platforms may also restrict automated access.
+            </p>
+          </details>
+
+          <details>
+            <summary>Can I download content from any platform?</summary>
+            <p>
+              Not yet. Download extraction currently supports Giphy,
+              Reddit, Tenor and X. Other platforms may be recognized
+              without being downloadable.
+            </p>
+          </details>
+
+        </div>
+
+        <p class="legal-note">
+          Only download and reuse media when you have the right or
+          permission to do so. Platform availability can change.
+        </p>
+
+      </section>
+
     </section>
 
     <footer>
-      <span>GIFREAPER</span>
+      <span>HAPPYGIF</span>
       <span>Only download content you have permission to save.</span>
     </footer>
+
   </main>
-  <script src="/app.js"></script>
+
+  <script src="/app.js" defer></script>
 </body>
 </html>
