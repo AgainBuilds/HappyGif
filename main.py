@@ -1,4 +1,3 @@
-
 from pathlib import Path
 from urllib.parse import urlparse
 import re
@@ -12,7 +11,7 @@ from extractors import ExtractionError, extract, is_media_host, make_client
 
 BASE_DIR = Path(__file__).resolve().parent
 
-app = FastAPI(title="HappyGif", version="1.0.0")
+app = FastAPI(title="HappyGif", version="1.1.0")
 
 
 PLATFORMS = {
@@ -29,7 +28,21 @@ PLATFORMS = {
     "vm.tiktok.com": "TikTok",
 }
 
-EXTRACTABLE = {"Giphy", "Reddit", "Tenor", "X"}
+EXTRACTABLE = {
+    "Giphy",
+    "Reddit",
+    "Tenor",
+    "X",
+    "Instagram",
+    "TikTok",
+    "Pinterest",
+}
+
+BEST_EFFORT_PLATFORMS = {
+    "Instagram",
+    "TikTok",
+    "Pinterest",
+}
 
 
 class DetectRequest(BaseModel):
@@ -37,7 +50,9 @@ class DetectRequest(BaseModel):
 
 
 def detect_platform(url: str):
-    hostname = (urlparse(str(url)).hostname or "").lower().rstrip(".")
+    hostname = (
+        urlparse(str(url)).hostname or ""
+    ).lower().rstrip(".")
 
     for domain, platform in PLATFORMS.items():
         if hostname == domain or hostname.endswith("." + domain):
@@ -75,7 +90,6 @@ def favicon():
     )
 
 
-# Google Search Console verification
 @app.get("/google09b76268addd1d3b.html", include_in_schema=False)
 def google_site_verification():
     return FileResponse(
@@ -111,13 +125,16 @@ def detect_link(data: DetectRequest):
             "message": "This platform is not supported yet.",
         }
 
-    if platform in EXTRACTABLE:
+    if platform in BEST_EFFORT_PLATFORMS:
+        message = (
+            f"{platform} link recognized. HappyGif will attempt "
+            "to extract publicly accessible media. Some posts may "
+            "not be available or may require a login."
+        )
+    elif platform in EXTRACTABLE:
         message = f"{platform} link recognized. Ready to extract."
     else:
-        message = (
-            f"{platform} link recognized, but downloading from {platform} "
-            "isn't available yet. Giphy, Reddit, Tenor, and X work for now."
-        )
+        message = f"{platform} link recognized, but extraction is unavailable."
 
     return {
         "supported": True,
@@ -139,7 +156,16 @@ def extract_link(data: DetectRequest):
 
     with make_client() as client:
         try:
-            return extract(url, platform, client)
+            result = extract(url, platform, client)
+
+            if not result.get("formats"):
+                raise ExtractionError(
+                    422,
+                    "No downloadable media was found."
+                )
+
+            return result
+
         except ExtractionError as error:
             raise HTTPException(
                 error.status,
@@ -218,7 +244,9 @@ async def download_file(
             await client.aclose()
 
     headers = {
-        "Content-Disposition": f'attachment; filename="{filename}"'
+        "Content-Disposition": (
+            f'attachment; filename="{filename}"'
+        )
     }
 
     if length.isdigit():
@@ -239,5 +267,5 @@ def health():
     return {
         "status": "ok",
         "service": "happygif",
-        "version": "1.0.0"
+        "version": "1.1.0"
     }
