@@ -1,33 +1,117 @@
-# GIFReaper (flat layout)
 
-Paste a public animation link → preview → download.
+# HappyGif
 
-**Works now:** Giphy, Reddit, Tenor, **X (Twitter)**  
-**Recognized only:** Pinterest, Instagram, TikTok  
+**Download GIFs and animated media online.**
 
-X posts are resolved via the public FxTwitter JSON API (no X API key).  
-X GIFs are MP4s on X's CDN — downloads are MP4.  
-Reddit may still fail on cloud hosts (Render) that Reddit blocks.
+HappyGif lets users paste a public animation link, preview the available media and download it.
+
+## Supported platforms
+
+### Download extraction available
+
+- Giphy
+- Reddit
+- Tenor
+- X
+
+### Recognized, but downloading is not available yet
+
+- Pinterest
+- Instagram
+- TikTok
+
+X animated media is delivered as MP4.
+
+Reddit availability can vary because Reddit may restrict requests from cloud hosting providers.
+
+## Features
+
+- Public animation link detection
+- GIF and MP4 extraction where available
+- Animation preview
+- Direct file downloads
+- Mobile-friendly interface
+- No account required
+
+## Technology
+
+- Python
+- FastAPI
+- HTTPX
+- HTML
+- CSS
+- JavaScript
 
 ## Run locally
 
+Install dependencies:
+
 ```bash
 pip install -r requirements.txt
+```
+
+Start the application:
+
+```bash
 uvicorn main:app --reload
 ```
 
-Open http://127.0.0.1:8000
+Open:
+
+```text
+http://127.0.0.1:8000
+```
 
 ## Deploy on Render
 
-1. Push this folder to GitHub  
-2. New → Web Service  
-3. Build: `pip install -r requirements.txt`  
-4. Start: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+Build command:
 
-## Files
+```bash
+pip install -r requirements.txt
+```
+
+Start command:
+
+```bash
+uvicorn main:app --host 0.0.0.0 --port $PORT
+```
+
+Health check:
 
 ```text
-main.py  extractors.py  index.html  style.css  app.js
-requirements.txt  render.yaml  README.md
+/health
 ```
+
+## SEO files
+
+The project includes:
+
+- `robots.txt`
+- `sitemap.xml`
+- `favicon.svg`
+- Canonical URL
+- Open Graph metadata
+- Twitter card metadata
+- WebApplication structured data
+- FAQ structured data
+
+## Project files
+
+```text
+HappyGif/
+├── main.py
+├── extractors.py
+├── index.html
+├── style.css
+├── app.js
+├── robots.txt
+├── sitemap.xml
+├── favicon.svg
+├── requirements.txt
+├── render.yaml
+└── README.md
+```
+
+## Responsible use
+
+Only download and reuse media when you have the right or permission to do so. Respect the rules and terms of the platforms hosting the content.
